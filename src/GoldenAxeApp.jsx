@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef, createContext, useContext } from "react";
-
+import Game21 from "./Game21";
+import AroundTheWorld from "./AroundTheWorld";
+import ZombieHunter from "./ZombieHunter";
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const ZONES = [
@@ -1274,7 +1276,7 @@ function generateNextRound(completedRound) {
 // ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function GoldenAxeApp() {
   const isTablet = useTablet();
-  const [screen, setScreen] = useState("home"); // home | match | tournament | league | stats
+  const [screen, setScreen] = useState("hub"); // hub | home | match | tournament | league | stats | game21 | aroundworld | zombie
   const [darkMode, setDarkMode] = useState(() => load("ga_dark", true));
   const theme = getTheme(darkMode);
   const t = theme; // shorthand
@@ -1473,11 +1475,79 @@ export default function GoldenAxeApp() {
   };
 
   // ── HOME ──────────────────────────────────────────────────────────────────
+  if (screen === "game21") return <Game21 onBack={() => setScreen("hub")} />;
+  if (screen === "aroundworld") return <AroundTheWorld onBack={() => setScreen("hub")} />;
+  if (screen === "zombie") return <ZombieHunter onBack={() => setScreen("hub")} />;
+
+  if (screen === "hub") return (
+    <div style={{ minHeight: "100vh", background: "#0a0a0a", color: "#fff", padding: isTablet ? 40 : 20, maxWidth: 600, margin: "0 auto" }}>
+      {/* Header */}
+      <div style={{ textAlign: "center", marginBottom: 32 }}>
+        <div style={{ fontSize: isTablet ? 72 : 56, marginBottom: 8 }}>🪓</div>
+        <h1 style={{ color: GOLD, fontFamily: "Georgia, serif", fontSize: isTablet ? 36 : 28, margin: "0 0 6px",
+          letterSpacing: 3, textTransform: "uppercase" }}>Golden Axe</h1>
+        <div style={{ color: "#555", fontFamily: "monospace", fontSize: 13, letterSpacing: 2 }}>AXE THROWING GAME CENTER</div>
+      </div>
+
+      {/* Competitive */}
+      <div style={{ color: GOLD, fontFamily: "monospace", fontSize: 11, fontWeight: "bold", letterSpacing: 2, marginBottom: 10 }}>
+        ⚔️ COMPETITIVE
+      </div>
+      {[
+        { key: "home", icon: "🏆", title: "Golden Axe Tournament", desc: "Single or Double Elimination · Seeding rounds · Champion banner", color: "#1a1500", border: GOLD },
+        { key: "league", icon: "📅", title: "League Play", desc: "7-day schedule · 21 matches each · Double elimination playoff", color: "#0a0a1a", border: "#1d6a96" },
+      ].map(g => (
+        <div key={g.key} onClick={() => setScreen(g.key)} style={{
+          background: g.color, border: `2px solid ${g.border}`, borderRadius: 14,
+          padding: isTablet ? "20px 24px" : "16px 18px", marginBottom: 10, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 16,
+          transition: "transform 0.1s", active: { transform: "scale(0.98)" },
+        }}>
+          <span style={{ fontSize: 40, flexShrink: 0 }}>{g.icon}</span>
+          <div>
+            <div style={{ color: g.border, fontFamily: "monospace", fontWeight: "bold", fontSize: isTablet ? 18 : 15, marginBottom: 3 }}>{g.title}</div>
+            <div style={{ color: "#666", fontFamily: "monospace", fontSize: 11 }}>{g.desc}</div>
+          </div>
+        </div>
+      ))}
+
+      {/* Mini games */}
+      <div style={{ color: "#888", fontFamily: "monospace", fontSize: 11, fontWeight: "bold", letterSpacing: 2, margin: "20px 0 10px" }}>
+        🎮 MINI GAMES
+      </div>
+      {[
+        { key: "game21", icon: "🎯", title: "21", desc: "Easy · Medium · Hard modes · Any number of players", color: "#001a0a", border: "#4f4" },
+        { key: "aroundworld", icon: "🌍", title: "Around the World", desc: "Hit every zone in order · 3 modes · Side targeting", color: "#00101a", border: "#4fc3f7" },
+        { key: "zombie", icon: "🧟", title: "Zombie Hunter", desc: "Champion vs the Horde · Nipple = headshot · Horde grows!", color: "#1a0000", border: "#e63946" },
+      ].map(g => (
+        <div key={g.key} onClick={() => setScreen(g.key)} style={{
+          background: g.color, border: `2px solid ${g.border}`, borderRadius: 14,
+          padding: isTablet ? "18px 24px" : "14px 18px", marginBottom: 10, cursor: "pointer",
+          display: "flex", alignItems: "center", gap: 16,
+        }}>
+          <span style={{ fontSize: 40, flexShrink: 0 }}>{g.icon}</span>
+          <div>
+            <div style={{ color: g.border, fontFamily: "monospace", fontWeight: "bold", fontSize: isTablet ? 18 : 15, marginBottom: 3 }}>{g.title}</div>
+            <div style={{ color: "#555", fontFamily: "monospace", fontSize: 11 }}>{g.desc}</div>
+          </div>
+        </div>
+      ))}
+
+      {/* Footer */}
+      <div style={{ textAlign: "center", marginTop: 24, color: "#333", fontFamily: "monospace", fontSize: 11 }}>
+        🪓 Golden Axe Game Center
+      </div>
+    </div>
+  );
+
   if (screen === "home") return (
     <ThemeContext.Provider value={{ dark: darkMode, theme: t }}>
     <div style={{ minHeight: "100vh", background: t.bg, color: t.text, fontFamily: "monospace" }}>
       {/* Header */}
       <div style={{ background: t.headerBg, borderBottom: `2px solid ${GOLD}`, padding: "20px 24px", textAlign: "center" }}>
+        <button onClick={() => setScreen("hub")} style={{ position: "absolute", left: 16, top: 20, background: "#222", border: "1px solid #444", borderRadius: 8, padding: "6px 12px", color: "#aaa", fontFamily: "monospace", fontSize: 12, cursor: "pointer" }}>
+          ← Hub
+        </button>
         <div style={{ fontSize: isTablet ? 52 : 36, marginBottom: 4 }}>🪓</div>
         <h1 style={{ color: GOLD, margin: 0, fontSize: isTablet ? 38 : 28, fontFamily: "Georgia, serif", letterSpacing: 2, textShadow: `0 0 20px ${GOLD}66` }}>
           GOLDEN AXE
@@ -3088,7 +3158,10 @@ function TournamentScreen({ players, isAdmin, activeTournament, setActiveTournam
                       }
                       const playMatch = () => {
                         if (!players.find(p => p.id === m.p0) || !players.find(p => p.id === m.p1)) return;
-                        if (isGrandFinal || isDouble) {
+                        const grandFinalSettings = { throwsPerPlayer: 5, roundsPerMatch: 5 };
+                        if (isGrandFinal) {
+                          onStartMatch({ id: m.id, p0: m.p0, p1: m.p1, tournamentId: activeTournament.id, matchType: "elimination" }, grandFinalSettings);
+                        } else if (isDouble) {
                           onStartMatch({ id: m.id, p0: m.p0, p1: m.p1, tournamentId: activeTournament.id, matchType: "elimination" }, activeTournament.settings);
                         } else {
                           const allFlat = (activeTournament.bracket || []).flat();
