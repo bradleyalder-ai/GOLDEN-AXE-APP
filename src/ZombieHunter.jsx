@@ -26,6 +26,15 @@ function AxeTarget({ onScore, noNipple }) {
   );
 }
 
+// Game state:
+// zombieQueue: [id, ...] — front is current dueling zombie
+// humanQueue:  [id, ...] — front is current dueling human
+// phase: "zombie_throw" | "human_throw" | "done"
+// zombieThrows: throws so far this duel for the zombie
+// humanThrows:  throws so far this duel for the human
+// eliminated:   [id, ...] — permanently dead zombies (headshot)
+// message:      string
+
 export default function ZombieHunter({ onBack }) {
   const [step, setStep] = useState("setup");
   const [throwsPerDuel, setThrowsPerDuel] = useState(3);
@@ -38,116 +47,130 @@ export default function ZombieHunter({ onBack }) {
   const card = { background: PANEL, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 14, marginBottom: 10 };
   const validNames = names.filter(n => n.trim());
 
+  const getName = (id, g) => (g || game)?.allPlayers.find(p => p.id === id)?.name || "?";
+
+  const zombieScore = (g) => g.zombieThrows.reduce((s, t) => s + t.points, 0);
+  const humanScore  = (g) => g.humanThrows.reduce((s, t) => s + t.points, 0);
+
   const startGame = () => {
     const ps = names.filter(n => n.trim()).map((n, i) => ({ id: String(i), name: n.trim() }));
     const champId = ps[Math.min(championIdx, ps.length - 1)].id;
-    const humans = ps.filter(p => p.id !== champId);
-    setGame({
+    const humans = ps.filter(p => p.id !== champId).map(p => p.id);
+    const g = {
       allPlayers: ps,
-      zombies: [champId],
-      humans: humans.map(p => p.id),
-      humanIdx: 0,
-      zombieIdx: 0,
-      phase: "zombie", // zombie throws first
-      zombieScore: 0,
-      humanScore: 0,
+      zombieQueue: [champId],   // front = current dueling zombie
+      humanQueue: humans,        // front = current dueling human
+      eliminated: [],            // dead zombies (headshot)
+      phase: "zombie_throw",
       zombieThrows: [],
       humanThrows: [],
       throwsLeft: throwsPerDuel,
       message: `🧟 ${ps[Math.min(championIdx, ps.length-1)].name} is the first zombie! The horde begins!`,
-    });
+    };
+    setGame(g);
     setGameOver(null);
     setStep("game");
   };
 
-  const getName = (id) => game?.allPlayers.find(p => p.id === id)?.name || "?";
-
   const handleThrow = (zone) => {
     if (!game || gameOver) return;
-    const isZombie = game.phase === "zombie";
-    const pts = isZombie ? Math.min(zone.points, 5) : zone.points; // zombies max bullseye
+    setGame(prev => {
+      const g = { ...prev };
+      const isZombieTurn = g.phase === "zombie_throw";
 
-    if (isZombie) {
-      const newThrows = [...game.zombieThrows, { ...zone, points: pts }];
-      const newScore = game.zombieScore + pts;
-      // Check if all zombies have thrown their full turns
-      const nextZombieIdx = game.zombieIdx + 1;
-      if (newThrows.length >= throwsPerDuel) {
-        if (nextZombieIdx < game.zombies.length) {
-          // Next zombie throws
-          setGame(prev => ({ ...prev, zombieIdx: nextZombieIdx, zombieScore: newScore, zombieThrows: [], throwsLeft: throwsPerDuel }));
-        } else {
-          // All zombies done, human's turn
-          setGame(prev => ({ ...prev, phase: "human", zombieScore: newScore, zombieThrows: newThrows, zombieIdx: 0, throwsLeft: throwsPerDuel, humanThrows: [], message: "" }));
+      if (isZombieTurn) {
+        // Zombies cap at bullseye (5pts)
+        const pts = Math.min(zone.points, 5);
+        const newThrows = [...g.zombieThrows, { ...zone, points: pts }];
+        if (newThrows.length >= throwsPerDuel) {
+          // Zombie done — human's turn
+          return { ...g, zombieThrows: newThrows, phase: "human_throw", humanThrows: [], throwsLeft: throwsPerDuel, message: "" };
         }
+        return { ...g, zombieThrows: newThrows, throwsLeft: g.throwsLeft - 1 };
       } else {
-        setGame(prev => ({ ...prev, zombieScore: newScore, zombieThrows: newThrows, throwsLeft: prev.throwsLeft - 1 }));
-      }
-    } else {
-      // Human throws
-      const newThrows = [...game.humanThrows, { ...zone, points: pts }];
-      const newScore = game.humanScore + pts;
-      const humanId = game.humans[game.humanIdx];
+        // Human's turn
+        const newThrows = [...g.humanThrows, zone];
+        const zScore = zombieScore(g);
 
-      // Nipple = headshot!
-      if (zone.id === "nipple") {
-        const killedZombie = game.zombies[0];
-        const remainingZombies = game.zombies.slice(1);
-        const killedName = getName(killedZombie);
-        const humanName = getName(humanId);
-        if (remainingZombies.length === 0) {
-          setGameOver({ winner: "humans", msg: `${humanName} lands a HEADSHOT and eliminates the last zombie! Humanity survives!` });
-          return;
-        }
-        const nextHumanIdx = game.humanIdx + 1;
-        if (nextHumanIdx >= game.humans.length) {
-          setGameOver({ winner: "humans", msg: `All zombies eliminated! Humanity survives!` });
-          return;
-        }
-        setGame(prev => ({ ...prev, zombies: remainingZombies, humanIdx: nextHumanIdx, phase: "zombie",
-          zombieScore: 0, humanScore: 0, zombieThrows: [], humanThrows: [], throwsLeft: throwsPerDuel, zombieIdx: 0,
-          message: `🎯 HEADSHOT! ${humanName} eliminates ${killedName} from the horde!` }));
-        return;
-      }
+        // Nipple = instant headshot on current zombie
+        if (zone.id === "nipple") {
+          const deadZombie = g.zombieQueue[0];
+          const remainingZombies = g.zombieQueue.slice(1);
+          const humanName = getName(g.humanQueue[0], g);
+          const zombieName = getName(deadZombie, g);
 
-      if (newThrows.length >= throwsPerDuel) {
-        // Duel resolved — tie goes to zombies
-        const zombieWins = game.zombieScore >= newScore;
-        const humanName = getName(humanId);
-        if (zombieWins) {
-          const newZombies = [...game.zombies, humanId];
-          const newHumans = game.humans.filter(id => id !== humanId);
-          if (newHumans.length === 0) {
-            setGameOver({ winner: "zombies", msg: `${humanName} joins the horde — everyone is a zombie now! 🧟🧟🧟` });
-            return;
-          }
-          const nextIdx = game.humanIdx >= newHumans.length ? 0 : game.humanIdx;
-          setGame(prev => ({ ...prev, zombies: newZombies, humans: newHumans, humanIdx: nextIdx,
-            phase: "zombie", zombieScore: 0, humanScore: 0, zombieThrows: [], humanThrows: [],
-            throwsLeft: throwsPerDuel, zombieIdx: 0,
-            message: `🧟 ${humanName} joins the zombie horde! ${newZombies.length} zombies vs ${newHumans.length} humans!` }));
-        } else {
-          const killedZombie = game.zombies[0];
-          const killedName = getName(killedZombie);
-          const remainingZombies = game.zombies.slice(1);
           if (remainingZombies.length === 0) {
-            setGameOver({ winner: "humans", msg: `${humanName} defeats the last zombie! Humanity survives!` });
-            return;
+            // All zombies dead — humans win!
+            setGameOver({ winner: "humans", msg: `HEADSHOT! ${humanName} eliminates ${zombieName} — the last zombie! Humanity survives!` });
+            return { ...g, zombieQueue: [], phase: "done" };
           }
-          const nextHumanIdx = game.humanIdx + 1;
-          if (nextHumanIdx >= game.humans.length) {
-            setGameOver({ winner: "humans", msg: `All humans survived! The horde is defeated!` });
-            return;
-          }
-          setGame(prev => ({ ...prev, zombies: remainingZombies, humanIdx: nextHumanIdx,
-            phase: "zombie", zombieScore: 0, humanScore: 0, zombieThrows: [], humanThrows: [],
-            throwsLeft: throwsPerDuel, zombieIdx: 0,
-            message: `💀 ${humanName} defeats ${killedName}! ${remainingZombies.length} zombie${remainingZombies.length !== 1 ? "s" : ""} remain!` }));
+          // Zombie eliminated — same human faces next zombie
+          return {
+            ...g,
+            zombieQueue: remainingZombies,
+            eliminated: [...g.eliminated, deadZombie],
+            phase: "zombie_throw",
+            zombieThrows: [],
+            humanThrows: [],
+            throwsLeft: throwsPerDuel,
+            message: `🎯 HEADSHOT! ${humanName} eliminates ${zombieName}! Next zombie steps up!`,
+          };
         }
-      } else {
-        setGame(prev => ({ ...prev, humanScore: newScore, humanThrows: newThrows, throwsLeft: prev.throwsLeft - 1 }));
+
+        if (newThrows.length >= throwsPerDuel) {
+          // Duel resolved
+          const hScore = newThrows.reduce((s, t) => s + t.points, 0);
+          const zombieWins = zScore >= hScore; // tie = zombie wins
+          const humanId = g.humanQueue[0];
+          const zombieId = g.zombieQueue[0];
+          const humanName = getName(humanId, g);
+          const zombieName = getName(zombieId, g);
+
+          if (zombieWins) {
+            // Human joins zombie horde (back of zombie queue)
+            const newHumanQueue = g.humanQueue.slice(1);
+            const newZombieQueue = [...g.zombieQueue, humanId]; // new zombie goes to back
+
+            if (newHumanQueue.length === 0) {
+              setGameOver({ winner: "zombies", msg: `${humanName} joins the horde — everyone is a zombie now! 🧟🧟🧟` });
+              return { ...g, zombieQueue: newZombieQueue, humanQueue: [], phase: "done" };
+            }
+            // Next human faces front zombie
+            return {
+              ...g,
+              zombieQueue: newZombieQueue,
+              humanQueue: newHumanQueue,
+              phase: "zombie_throw",
+              zombieThrows: [],
+              humanThrows: [],
+              throwsLeft: throwsPerDuel,
+              message: `🧟 ${humanName} joins the horde! ${zombieName} faces the next human!`,
+            };
+          } else {
+            // Human wins — current zombie eliminated, same human faces next zombie
+            const remainingZombies = g.zombieQueue.slice(1);
+
+            if (remainingZombies.length === 0) {
+              setGameOver({ winner: "humans", msg: `${humanName} defeats ${zombieName} — the last zombie! Humanity survives!` });
+              return { ...g, zombieQueue: [], eliminated: [...g.eliminated, zombieId], phase: "done" };
+            }
+            // Same human stays, next zombie steps up
+            return {
+              ...g,
+              zombieQueue: remainingZombies,
+              eliminated: [...g.eliminated, zombieId],
+              phase: "zombie_throw",
+              zombieThrows: [],
+              humanThrows: [],
+              throwsLeft: throwsPerDuel,
+              message: `💀 ${humanName} defeats ${zombieName}! Next zombie steps up!`,
+            };
+          }
+        }
+
+        return { ...g, humanThrows: newThrows, throwsLeft: g.throwsLeft - 1 };
       }
-    }
+    });
   };
 
   if (step === "setup") return (
@@ -157,11 +180,11 @@ export default function ZombieHunter({ onBack }) {
         <h2 style={{ color: ZG, margin: 0, fontFamily: "serif" }}>🧟 Zombie Hunter</h2>
       </div>
       <div style={{ textAlign: "center", fontSize: 64, marginBottom: 8 }}>🧟</div>
-      <div style={{ color: "#888", fontFamily: "monospace", fontSize: 12, textAlign: "center", marginBottom: 20, lineHeight: 1.7 }}>
-        The Champion is the first zombie.<br/>
-        <span style={{ color: "#e63946" }}>🎯 Nipple = headshot — kills a zombie instantly!</span><br/>
-        Zombies can't throw nipples (max bullseye).<br/>
-        Ties go to the zombies.
+      <div style={{ color: "#888", fontFamily: "monospace", fontSize: 12, textAlign: "center", marginBottom: 20, lineHeight: 1.8 }}>
+        Champion = first zombie. Zombie throws first, then human.<br/>
+        <span style={{ color: "#e63946" }}>🎯 Nipple = headshot — instant zombie kill!</span><br/>
+        Zombies can't throw nipples (max bullseye). Ties → zombie wins.<br/>
+        Converted humans join back of zombie queue.
       </div>
 
       <div style={card}>
@@ -221,7 +244,7 @@ export default function ZombieHunter({ onBack }) {
         <div style={{ color: humansWon ? ZG : "#e63946", fontFamily: "Georgia, serif", fontSize: 26, fontWeight: "bold", marginBottom: 12 }}>
           {humansWon ? "HUMANITY SURVIVES!" : "THE HORDE WINS!"}
         </div>
-        <div style={{ color: "#aaa", fontFamily: "monospace", fontSize: 13, marginBottom: 32, maxWidth: 360 }}>{gameOver.msg}</div>
+        <div style={{ color: "#aaa", fontFamily: "monospace", fontSize: 13, marginBottom: 32, maxWidth: 360, lineHeight: 1.6 }}>{gameOver.msg}</div>
         <div style={{ display: "flex", gap: 10 }}>
           <button onClick={onBack} style={{ ...btn("#333"), padding: "12px 24px" }}>🏠 Menu</button>
           <button onClick={startGame} style={{ ...btn("#e63946"), padding: "12px 24px" }}>🔄 Again</button>
@@ -232,54 +255,85 @@ export default function ZombieHunter({ onBack }) {
 
   if (step !== "game" || !game) return null;
 
-  const isZombie = game.phase === "zombie";
-  const humanId = game.humans[game.humanIdx];
-  const zombieId = game.zombies[game.currentZombieIdx ?? game.zombieIdx ?? 0];
-  const throws = isZombie ? game.zombieThrows : game.humanThrows;
+  const isZombieTurn = game.phase === "zombie_throw";
+  const currentZombieId = game.zombieQueue[0];
+  const currentHumanId = game.humanQueue[0];
+  const throws = isZombieTurn ? game.zombieThrows : game.humanThrows;
+  const zScore = zombieScore(game);
+  const hScore = humanScore(game);
 
   return (
-    <div style={{ minHeight: "100vh", background: isZombie ? "#0d0505" : DARK, color: "#fff", padding: 16, maxWidth: 500, margin: "0 auto" }}>
+    <div style={{ minHeight: "100vh", background: isZombieTurn ? "#0d0505" : DARK, color: "#fff", padding: 16, maxWidth: 500, margin: "0 auto" }}>
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
         <button onClick={() => { setStep("setup"); setGame(null); }} style={{ ...btn("#333"), padding: "8px 14px" }}>← Back</button>
         <h3 style={{ color: ZG, margin: 0, fontFamily: "serif", flex: 1 }}>🧟 Zombie Hunter</h3>
       </div>
 
       {game.message && (
-        <div style={{ background: "#1a0505", border: "1px solid #e63946", borderRadius: 8, padding: "10px 14px", marginBottom: 12, color: "#e63946", fontFamily: "monospace", fontSize: 12, textAlign: "center" }}>
+        <div style={{ background: "#1a0505", border: "1px solid #e63946", borderRadius: 8, padding: "10px 14px", marginBottom: 12,
+          color: "#e63946", fontFamily: "monospace", fontSize: 12, textAlign: "center" }}>
           {game.message}
         </div>
       )}
 
-      {/* Horde vs Humans */}
+      {/* Queues */}
       <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <div style={{ flex: 1, background: "#1a0505", border: "1px solid #e63946", borderRadius: 8, padding: 10, textAlign: "center" }}>
-          <div style={{ color: "#e63946", fontFamily: "monospace", fontSize: 11, fontWeight: "bold", marginBottom: 6 }}>🧟 HORDE ({game.zombies.length})</div>
-          {game.zombies.map(id => <div key={id} style={{ color: id === zombieId && isZombie ? "#ff8888" : "#cc4444", fontFamily: "monospace", fontSize: 12, fontWeight: id === zombieId && isZombie ? "bold" : "normal" }}>{id === zombieId && isZombie ? "▶ " : ""}{getName(id)}</div>)}
+        <div style={{ flex: 1, background: "#1a0505", border: "1px solid #e63946", borderRadius: 8, padding: 10 }}>
+          <div style={{ color: "#e63946", fontFamily: "monospace", fontSize: 11, fontWeight: "bold", marginBottom: 6, textAlign: "center" }}>
+            🧟 ZOMBIE QUEUE ({game.zombieQueue.length})
+          </div>
+          {game.zombieQueue.map((id, i) => (
+            <div key={id} style={{ color: i === 0 ? "#ff8888" : "#994444", fontFamily: "monospace", fontSize: 12,
+              fontWeight: i === 0 ? "bold" : "normal", padding: "2px 0" }}>
+              {i === 0 ? "▶ " : `${i+1}. `}{getName(id)}
+            </div>
+          ))}
+          {game.eliminated.length > 0 && (
+            <div style={{ marginTop: 6, borderTop: "1px solid #333", paddingTop: 6 }}>
+              {game.eliminated.map(id => (
+                <div key={id} style={{ color: "#444", fontFamily: "monospace", fontSize: 11, textDecoration: "line-through" }}>💀 {getName(id)}</div>
+              ))}
+            </div>
+          )}
         </div>
-        <div style={{ flex: 1, background: ZD, border: `1px solid ${ZG}`, borderRadius: 8, padding: 10, textAlign: "center" }}>
-          <div style={{ color: ZG, fontFamily: "monospace", fontSize: 11, fontWeight: "bold", marginBottom: 6 }}>👤 HUMANS ({game.humans.length})</div>
-          {game.humans.map((id, i) => <div key={id} style={{ color: i === game.humanIdx ? ZG : "#888", fontFamily: "monospace", fontSize: 12, fontWeight: i === game.humanIdx ? "bold" : "normal" }}>{i === game.humanIdx ? "▶ " : ""}{getName(id)}</div>)}
+        <div style={{ flex: 1, background: ZD, border: `1px solid ${ZG}`, borderRadius: 8, padding: 10 }}>
+          <div style={{ color: ZG, fontFamily: "monospace", fontSize: 11, fontWeight: "bold", marginBottom: 6, textAlign: "center" }}>
+            👤 HUMAN QUEUE ({game.humanQueue.length})
+          </div>
+          {game.humanQueue.map((id, i) => (
+            <div key={id} style={{ color: i === 0 ? ZG : "#888", fontFamily: "monospace", fontSize: 12,
+              fontWeight: i === 0 ? "bold" : "normal", padding: "2px 0" }}>
+              {i === 0 ? "▶ " : `${i+1}. `}{getName(id)}
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Duel scoreboard */}
-      <div style={{ background: isZombie ? "#1a0505" : "#051a05", border: `2px solid ${isZombie ? "#e63946" : ZG}`, borderRadius: 10, padding: 12, marginBottom: 12, textAlign: "center" }}>
-        <div style={{ fontFamily: "monospace", fontSize: 13, marginBottom: 8 }}>
-          <span style={{ color: "#e63946" }}>{getName(zombieId)} 🧟</span>
-          <span style={{ color: "#555", margin: "0 10px" }}>vs</span>
-          <span style={{ color: ZG }}>{getName(humanId)} 👤</span>
+      {/* Current duel */}
+      <div style={{ background: isZombieTurn ? "#1a0505" : "#051a05", border: `2px solid ${isZombieTurn ? "#e63946" : ZG}`,
+        borderRadius: 10, padding: 12, marginBottom: 12, textAlign: "center" }}>
+        <div style={{ fontFamily: "monospace", fontSize: 14, marginBottom: 8 }}>
+          <span style={{ color: "#e63946" }}>{getName(currentZombieId)} 🧟</span>
+          <span style={{ color: "#555", margin: "0 12px" }}>vs</span>
+          <span style={{ color: ZG }}>{getName(currentHumanId)} 👤</span>
         </div>
-        <div style={{ display: "flex", justifyContent: "center", gap: 32, marginBottom: 6 }}>
-          <div><div style={{ color: "#e63946", fontFamily: "monospace", fontSize: 11 }}>🧟 HORDE</div>
-            <div style={{ color: "#e63946", fontFamily: "monospace", fontSize: 30, fontWeight: "bold" }}>{game.zombieScore}</div></div>
-          <div><div style={{ color: ZG, fontFamily: "monospace", fontSize: 11 }}>👤 HUMAN</div>
-            <div style={{ color: ZG, fontFamily: "monospace", fontSize: 30, fontWeight: "bold" }}>{game.humanScore}</div></div>
+        <div style={{ display: "flex", justifyContent: "center", gap: 40, marginBottom: 6 }}>
+          <div>
+            <div style={{ color: "#e63946", fontFamily: "monospace", fontSize: 11 }}>🧟 ZOMBIE</div>
+            <div style={{ color: "#e63946", fontFamily: "monospace", fontSize: 32, fontWeight: "bold" }}>{zScore}</div>
+          </div>
+          <div>
+            <div style={{ color: ZG, fontFamily: "monospace", fontSize: 11 }}>👤 HUMAN</div>
+            <div style={{ color: ZG, fontFamily: "monospace", fontSize: 32, fontWeight: "bold" }}>{hScore}</div>
+          </div>
         </div>
-        <div style={{ color: "#888", fontFamily: "monospace", fontSize: 11 }}>
-          {isZombie ? `🧟 ${getName(zombieId)}'s throw — ${game.throwsLeft} left` : `👤 ${getName(humanId)}'s throw — ${game.throwsLeft} left`}
+        <div style={{ color: "#888", fontFamily: "monospace", fontSize: 12 }}>
+          {isZombieTurn
+            ? `🧟 ${getName(currentZombieId)}'s throw — ${game.throwsLeft} left`
+            : `👤 ${getName(currentHumanId)}'s throw — ${game.throwsLeft} left`}
         </div>
-        <div style={{ color: isZombie ? "#664422" : "#226644", fontFamily: "monospace", fontSize: 10, marginTop: 4 }}>
-          {isZombie ? "⚠️ No nipples for zombies!" : "🎯 Hit a nipple for an instant headshot!"}
+        <div style={{ color: isZombieTurn ? "#664422" : "#226644", fontFamily: "monospace", fontSize: 10, marginTop: 4 }}>
+          {isZombieTurn ? "⚠️ No nipples for zombies! Max = bullseye" : "🎯 Hit nipple = instant HEADSHOT!  Tie = zombie wins"}
         </div>
       </div>
 
@@ -288,7 +342,7 @@ export default function ZombieHunter({ onBack }) {
         {Array.from({ length: throwsPerDuel }).map((_, i) => {
           const t = throws[i];
           return (
-            <div key={i} style={{ width: 36, height: 36, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
+            <div key={i} style={{ width: 38, height: 38, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center",
               fontFamily: "monospace", fontWeight: "bold", fontSize: 13,
               background: t ? (t.id === "miss" ? "#333" : t.id === "outer" ? BLUE : t.id === "inner" ? RED : t.id === "bullseye" ? "#222" : "#e63946") : "#1a1a1a",
               border: t ? `1px solid ${t.id === "bullseye" ? GOLD : "#555"}` : "1px dashed #333",
@@ -300,7 +354,7 @@ export default function ZombieHunter({ onBack }) {
         })}
       </div>
 
-      <AxeTarget onScore={handleThrow} noNipple={isZombie} />
+      <AxeTarget onScore={handleThrow} noNipple={isZombieTurn} />
     </div>
   );
 }
