@@ -5,20 +5,16 @@ import GroupEntry from './GroupEntry'
 
 function Root() {
   const [groupCode, setGroupCode] = useState(() => {
-    // Remember last group code
     try { return localStorage.getItem("ga_group_code") || null; } catch { return null; }
   });
-
   const handleJoin = (code) => {
     try { localStorage.setItem("ga_group_code", code); } catch {}
     setGroupCode(code);
   };
-
   const handleLeave = () => {
     try { localStorage.removeItem("ga_group_code"); } catch {}
     setGroupCode(null);
   };
-
   if (!groupCode) return <GroupEntry onJoin={handleJoin} />;
   return <GoldenAxeApp groupCode={groupCode} onLeaveGroup={handleLeave} />;
 }
