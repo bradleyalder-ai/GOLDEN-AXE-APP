@@ -109,10 +109,10 @@ function Tiebreaker({ tied, placing, onDone }) {
   );
 }
 
-export default function AroundTheWorld({ onBack }) {
+export default function AroundTheWorld({ onBack, roomPlayers = [] }) {
   const [step, setStep] = useState("mode");
   const [mode, setMode] = useState(null);
-  const [names, setNames] = useState(["", ""]);
+  const [names, setNames] = useState(() => roomPlayers.length >= 2 ? roomPlayers.map(p => p.name) : ["", ""]);
   const [game, setGame] = useState(null);
   const [podium, setPodium] = useState(null);
   const [tiebreaker, setTiebreaker] = useState(null);

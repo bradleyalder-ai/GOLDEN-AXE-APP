@@ -88,11 +88,11 @@ function Tiebreaker({ tied, placing, onDone }) {
   );
 }
 
-export default function Game21({ onBack }) {
+export default function Game21({ onBack, roomPlayers = [] }) {
   const [step, setStep] = useState("mode");
   const [mode, setMode] = useState(null);
   const [throwsPerTurn, setThrowsPerTurn] = useState(3);
-  const [names, setNames] = useState(["", ""]);
+  const [names, setNames] = useState(() => roomPlayers.length >= 2 ? roomPlayers.map(p => p.name) : ["", ""]);
   const [game, setGame] = useState(null);
   const [podium, setPodium] = useState(null); // [{id, name, place, throwCount}]
   const [tiebreaker, setTiebreaker] = useState(null); // {tied, placing}

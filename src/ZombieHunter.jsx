@@ -334,10 +334,10 @@ function HumanityWinsScreen({ msg, onBack, onAgain }) {
     </div>
   );
 }
-export default function ZombieHunter({ onBack }) {
+export default function ZombieHunter({ onBack, roomPlayers = [] }) {
   const [step, setStep] = useState("setup");
   const [throwsPerDuel, setThrowsPerDuel] = useState(3);
-  const [names, setNames] = useState(["", "", ""]);
+  const [names, setNames] = useState(() => roomPlayers.length >= 2 ? roomPlayers.map(p => p.name) : ["", "", ""]);
   const [championIdx, setChampionIdx] = useState(0);
   const [startingZombies, setStartingZombies] = useState(1);
   const [game, setGame] = useState(null);
