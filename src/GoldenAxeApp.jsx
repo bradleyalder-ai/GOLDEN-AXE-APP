@@ -1709,7 +1709,7 @@ export default function GoldenAxeApp({ groupCode, onLeaveGroup }) {
           </button>
           <button onClick={onLeaveGroup} style={{ background: "transparent", border: "1px solid #333",
             borderRadius: 8, padding: "4px 10px", color: "#555", fontFamily: "monospace", fontSize: 11, cursor: "pointer" }}>
-            Leave
+            ← Locations
           </button>
         </div>
       </div>
