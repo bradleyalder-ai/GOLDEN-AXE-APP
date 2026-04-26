@@ -2,8 +2,56 @@ import { useState, useEffect, useCallback, useRef, createContext, useContext } f
 import Game21 from "./Game21";
 import AroundTheWorld from "./AroundTheWorld";
 import ZombieHunter from "./ZombieHunter";
-import { writeGroupState, writeField, groupExists, subscribeToGroup } from "./firebase";
+import { writeGroupState, writeField, groupExists, subscribeToGroup, submitLeaderboardEntry } from "./firebase";
 import PinModal, { canScore, canManage, isMaster, ROLE_LABELS } from "./PinModal";
+import { SHOPS } from "./Directory";
+import Leaderboard from "./Leaderboard";
+import Leaderboard, { submitLeaderboardScore } from "./Leaderboard";
+
+// ─── EVENT ROOM CREATOR ───────────────────────────────────────────────────────
+// Generates a unique event code tied to the shop, e.g. WPG-FRI-4A2
+function EventRoomCreator({ shopCode, onJoin }) {
+  const [customCode, setCustomCode] = useState("");
+
+  const generateCode = () => {
+    // Auto-generate: shop prefix + random 4 chars
+    const prefix = shopCode.replace("GA_", "").replace("_01", "").slice(0, 3);
+    const rand = Math.random().toString(36).toUpperCase().slice(2, 6);
+    return `${prefix}${rand}`;
+  };
+
+  const [generated, setGenerated] = useState(() => generateCode());
+
+  const handleCreate = (code) => {
+    const clean = code.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 12);
+    if (clean.length >= 3) onJoin(clean);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <input value={customCode}
+          onChange={e => setCustomCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
+          placeholder={generated}
+          maxLength={12}
+          style={{ flex: 1, background: "#111", border: "1px solid #2a4a2a", borderRadius: 8,
+            padding: "10px 12px", color: "#fff", fontFamily: "monospace", fontSize: 15,
+            letterSpacing: 3, outline: "none" }} />
+        <button onClick={() => setGenerated(generateCode())}
+          style={{ background: "#111", border: "1px solid #2a4a2a", borderRadius: 8,
+            padding: "10px 12px", color: "#4f4", fontFamily: "monospace", fontSize: 12, cursor: "pointer" }}>
+          🔀
+        </button>
+      </div>
+      <button onClick={() => handleCreate(customCode || generated)}
+        style={{ width: "100%", background: "#39ff14", color: "#000", border: "none",
+          borderRadius: 8, padding: "12px", fontFamily: "monospace", fontWeight: "bold",
+          fontSize: 14, cursor: "pointer" }}>
+        ✅ Create Event Room
+      </button>
+    </div>
+  );
+}
 
 // ─── CONSTANTS ───────────────────────────────────────────────────────────────
 const ZONES = [
@@ -1383,6 +1431,33 @@ export default function GoldenAxeApp({ groupCode, onLeaveGroup }) {
   useEffect(() => { pushField("players", players); }, [players]);
   useEffect(() => { pushField("completedMatches", completedMatches); }, [completedMatches]);
   useEffect(() => { pushField("activeTournament", activeTournament); }, [activeTournament]);
+
+  // Submit tournament win to leaderboard when a champion is crowned
+  const lastChampRef = useRef(null);
+  useEffect(() => {
+    if (!isShopRoom || !activeTournament?.champion) return;
+    if (activeTournament.champion === lastChampRef.current) return;
+    lastChampRef.current = activeTournament.champion;
+    const champName = players.find(p => p.id === activeTournament.champion)?.name;
+    if (champName) {
+      submitLeaderboardEntry(groupCode, "tournamentWins", champName, 1,
+        activeTournament.name || "Tournament").catch(() => {});
+    }
+  }, [activeTournament?.champion]);
+
+  // Submit league win to leaderboard when a league is finished
+  const lastLeagueChampRef = useRef(null);
+  useEffect(() => {
+    if (!isShopRoom || !leagueHistory?.length) return;
+    const latest = leagueHistory[leagueHistory.length - 1];
+    if (!latest?.champion || latest.id === lastLeagueChampRef.current) return;
+    lastLeagueChampRef.current = latest.id;
+    const champName = players.find(p => p.id === latest.champion)?.name;
+    if (champName) {
+      submitLeaderboardEntry(groupCode, "leagueWins", champName, 1,
+        latest.name || "League Season").catch(() => {});
+    }
+  }, [leagueHistory]);
   useEffect(() => { pushField("activeLeague", activeLeague); }, [activeLeague]);
   useEffect(() => { pushField("leagueHistory", leagueHistory); }, [leagueHistory]);
 
@@ -1394,6 +1469,12 @@ export default function GoldenAxeApp({ groupCode, onLeaveGroup }) {
   const [roomLogo, setRoomLogo] = useState(""); // URL to shop logo
   const [roomName, setRoomName] = useState(""); // Shop/venue name
   const [synced, setSynced] = useState(false);
+
+  // Look up shop info from directory
+  const shopInfo = SHOPS.find(s => s.roomCode === groupCode) || null;
+  const isShopRoom = !!shopInfo; // true for league/shop rooms from directory tiles
+  const isEventRoom = !isShopRoom; // true for guest event rooms
+  const [eventCodeCreated, setEventCodeCreated] = useState(null);
 
   // Convenience aliases so existing code keeps working
   const isAdmin = canManage(role);
@@ -1451,6 +1532,21 @@ export default function GoldenAxeApp({ groupCode, onLeaveGroup }) {
   const handleMatchComplete = (result) => {
     const match = { ...currentMatch, ...result, completedAt: Date.now() };
     setCompletedMatches(prev => [...prev, match]);
+
+    // Submit match high score to leaderboard (shop rooms only)
+    const lbShopCode = isShopRoom ? groupCode : null;
+    if (lbShopCode && result.winner) {
+      const winnerName = players.find(p => p.id === result.winner)?.name;
+      const loserName  = players.find(p => p.id === (result.winner === match.p0 ? match.p1 : match.p0))?.name;
+      const p0total = (result.scores || []).reduce((s, r) => s + totalScore(r[0] || []), 0);
+      const p1total = (result.scores || []).reduce((s, r) => s + totalScore(r[1] || []), 0);
+      const winnerScore = result.winner === match.p0 ? p0total : p1total;
+      const loserScore  = result.winner === match.p0 ? p1total : p0total;
+      if (winnerName) submitLeaderboardEntry(lbShopCode, "matchScore", winnerName, winnerScore,
+        `vs ${loserName || "?"} · ${winnerScore}-${loserScore}`).catch(() => {});
+      if (loserName) submitLeaderboardEntry(lbShopCode, "matchScore", loserName, loserScore,
+        `vs ${winnerName || "?"} · ${loserScore}-${winnerScore}`).catch(() => {});
+    }
 
     if (activeTournament) {
       setActiveTournament(prev => {
@@ -1584,9 +1680,24 @@ export default function GoldenAxeApp({ groupCode, onLeaveGroup }) {
   };
 
   // ── HOME ──────────────────────────────────────────────────────────────────
+  if (screen === "leaderboard") return (
+    <Leaderboard
+      shopRoomCode={isShopRoom ? groupCode : shopInfo?.roomCode || groupCode}
+      shopName={shopInfo?.name || roomName || groupCode}
+      onBack={() => setScreen("hub")}
+    />
+  );
+
   if (screen === "game21") return <Game21 onBack={() => setScreen("hub")} roomPlayers={players} />;
   if (screen === "aroundworld") return <AroundTheWorld onBack={() => setScreen("hub")} roomPlayers={players} />;
   if (screen === "zombie") return <ZombieHunter onBack={() => setScreen("hub")} roomPlayers={players} />;
+  if (screen === "leaderboard") return (
+    <Leaderboard
+      shopCode={isShopRoom ? groupCode : (shopInfo?.roomCode || groupCode)}
+      shopName={shopInfo?.name || roomName || "Golden Axe"}
+      onBack={() => setScreen("hub")}
+    />
+  );
 
   if (screen === "hub") return (
     <div style={{ minHeight: "100vh", background: "#0a0a0a", color: "#fff", padding: isTablet ? 40 : 20, maxWidth: 600, margin: "0 auto" }}>
@@ -1685,20 +1796,21 @@ export default function GoldenAxeApp({ groupCode, onLeaveGroup }) {
       )}
       {/* Header */}
       <div style={{ textAlign: "center", marginBottom: 32 }}>
-        {roomLogo
-          ? <img src={roomLogo} alt="Shop Logo"
+        {(roomLogo || shopInfo?.logo)
+          ? <img src={roomLogo || shopInfo.logo} alt="Shop Logo"
               onError={e => { e.target.style.display = "none"; }}
               style={{ maxWidth: isTablet ? 220 : 160, maxHeight: 100, objectFit: "contain",
                 marginBottom: 8, borderRadius: 10 }} />
           : <div style={{ fontSize: isTablet ? 72 : 56, marginBottom: 8 }}>🪓</div>
         }
         <h1 style={{ color: GOLD, fontFamily: "Georgia, serif", fontSize: isTablet ? 36 : 28, margin: "0 0 6px",
-          letterSpacing: 3, textTransform: "uppercase" }}>{roomName || "Golden Axe"}</h1>
+          letterSpacing: 3, textTransform: "uppercase" }}>{roomName || shopInfo?.name || "Golden Axe"}</h1>
         <div style={{ color: "#555", fontFamily: "monospace", fontSize: 13, letterSpacing: 2 }}>AXE THROWING GAME CENTER</div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
           <div style={{ background: "#111", border: `1px solid ${GOLD}44`, borderRadius: 8,
             padding: "4px 14px", fontFamily: "monospace", fontSize: 12, color: GOLD, letterSpacing: 2 }}>
-            <span style={{ color: synced ? "#4f4" : "#f84", marginRight: 4, fontSize: 10 }}>●</span>{groupCode}
+            <span style={{ color: synced ? "#4f4" : "#f84", marginRight: 4, fontSize: 10 }}>●</span>
+            {shopInfo ? shopInfo.name : groupCode}
           </div>
           {/* Role badge — tap to unlock higher access */}
           <button onClick={() => setShowPinModal(true)} style={{
@@ -1713,6 +1825,46 @@ export default function GoldenAxeApp({ groupCode, onLeaveGroup }) {
           </button>
         </div>
       </div>
+
+      {/* Event room banner — shown when in a guest event room */}
+      {isEventRoom && (
+        <div style={{ background: "#0a1a0a", border: "2px solid #39ff14", borderRadius: 12,
+          padding: "14px 18px", marginBottom: 18, textAlign: "center" }}>
+          <div style={{ color: "#39ff14", fontFamily: "monospace", fontWeight: "bold", fontSize: 14, marginBottom: 4 }}>
+            🎟️ EVENT ROOM
+          </div>
+          <div style={{ color: "#446644", fontFamily: "monospace", fontSize: 11 }}>
+            You're in a guest event room. Scores and players here are for this event only.
+          </div>
+        </div>
+      )}
+
+      {/* Manager: Create / manage event rooms (shop rooms only) */}
+      {isShopRoom && canManage(role) && (
+        <div style={{ background: "#0a1000", border: "1px solid #2a4a2a", borderRadius: 12,
+          padding: "14px 18px", marginBottom: 18 }}>
+          <div style={{ color: "#4f4", fontFamily: "monospace", fontWeight: "bold",
+            fontSize: 12, marginBottom: 10, letterSpacing: 1 }}>⚡ CREATE GUEST EVENT ROOM</div>
+          <div style={{ color: "#446644", fontFamily: "monospace", fontSize: 11, marginBottom: 12, lineHeight: 1.6 }}>
+            Create a fresh room code for tonight's guests. Share it verbally or put it on screen.
+            Guest data stays completely separate from your league room.
+          </div>
+          <EventRoomCreator shopCode={groupCode} onJoin={code => { setEventCodeCreated(code); }} />
+          {eventCodeCreated && (
+            <div style={{ marginTop: 12, background: "#001a00", border: "1px solid #39ff14",
+              borderRadius: 8, padding: 12, textAlign: "center" }}>
+              <div style={{ color: "#39ff14", fontFamily: "monospace", fontSize: 11, marginBottom: 4 }}>
+                Tonight's Event Code:
+              </div>
+              <div style={{ color: "#fff", fontFamily: "monospace", fontSize: 28,
+                fontWeight: "bold", letterSpacing: 6 }}>{eventCodeCreated}</div>
+              <div style={{ color: "#446644", fontFamily: "monospace", fontSize: 10, marginTop: 6 }}>
+                Share this with guests — they enter it on the Join Event screen
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Competitive */}
       <div style={{ color: GOLD, fontFamily: "monospace", fontSize: 11, fontWeight: "bold", letterSpacing: 2, marginBottom: 10 }}>
@@ -1736,7 +1888,7 @@ export default function GoldenAxeApp({ groupCode, onLeaveGroup }) {
         </div>
       ))}
 
-      {/* Mini games */}
+      {/* 🎮 MINI GAMES */}
       <div style={{ color: "#888", fontFamily: "monospace", fontSize: 11, fontWeight: "bold", letterSpacing: 2, margin: "20px 0 10px" }}>
         🎮 MINI GAMES
       </div>
@@ -1757,6 +1909,22 @@ export default function GoldenAxeApp({ groupCode, onLeaveGroup }) {
           </div>
         </div>
       ))}
+
+      {/* Leaderboard tile */}
+      <div onClick={() => setScreen("leaderboard")} style={{
+        background: "#0d0a00", border: `2px solid ${GOLD}`, borderRadius: 14,
+        padding: isTablet ? "18px 24px" : "14px 18px", marginBottom: 10, cursor: "pointer",
+        display: "flex", alignItems: "center", gap: 16,
+      }}>
+        <span style={{ fontSize: 40, flexShrink: 0 }}>🏅</span>
+        <div>
+          <div style={{ color: GOLD, fontFamily: "monospace", fontWeight: "bold",
+            fontSize: isTablet ? 18 : 15, marginBottom: 3 }}>Leaderboard</div>
+          <div style={{ color: "#555", fontFamily: "monospace", fontSize: 11 }}>
+            Top 100 · Match scores · Tournament wins · League wins
+          </div>
+        </div>
+      </div>
 
       {/* Footer */}
       <div style={{ textAlign: "center", marginTop: 24, color: "#333", fontFamily: "monospace", fontSize: 11 }}>
