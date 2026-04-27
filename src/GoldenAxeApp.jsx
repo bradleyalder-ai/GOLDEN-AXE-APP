@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, createContext, useContext } f
 import Game21 from "./Game21";
 import AroundTheWorld from "./AroundTheWorld";
 import ZombieHunter from "./ZombieHunter";
-import { writeGroupState, writeField, groupExists, subscribeToGroup, submitLeaderboardEntry } from "./firebase";
+import { writeGroupState, writeField, groupExists, subscribeToGroup, submitLeaderboardEntry, subscribeToShopSettings } from "./firebase";
 import PinModal, { canScore, canManage, isMaster, ROLE_LABELS } from "./PinModal";
 import { SHOPS } from "./Directory";
 import Leaderboard from "./Leaderboard";
@@ -1465,14 +1465,34 @@ export default function GoldenAxeApp({ groupCode, onLeaveGroup }) {
   const [showPinModal, setShowPinModal] = useState(false);
   const [showHubSettings, setShowHubSettings] = useState(false);
   const [roomPins, setRoomPins] = useState({ managerPin: "", scorerPin: "" });
-  const [roomLogo, setRoomLogo] = useState(""); // URL to shop logo
-  const [roomName, setRoomName] = useState(""); // Shop/venue name
+  const [shopSettings, setShopSettings] = useState(null);
+  const [roomLogo, setRoomLogo] = useState("");
+  const [roomName, setRoomName] = useState("");
+
+  // Load shop-level settings (PINs, logo, name) for ALL rooms in this shop
+  useEffect(() => {
+    if (!shopInfo?.settingsCode) return;
+    const unsub = subscribeToShopSettings(shopInfo.settingsCode, s => {
+      setShopSettings(s);
+      setRoomPins({
+        managerPin: s.managerPin || shopInfo.defaultManagerPin || "",
+        scorerPin:  s.scorerPin  || "",
+      });
+      if (s.logoUrl)   setRoomLogo(s.logoUrl);
+      if (s.shopName)  setRoomName(s.shopName);
+    });
+    return unsub;
+  }, [shopInfo?.settingsCode]);
   const [synced, setSynced] = useState(false);
 
   // Look up shop info from directory
-  const shopInfo = SHOPS.find(s => s.roomCode === groupCode) || null;
-  const isShopRoom = !!shopInfo; // true for league/shop rooms from directory tiles
-  const isEventRoom = !isShopRoom; // true for guest event rooms
+  const shopInfo = SHOPS.find(s =>
+    s.settingsCode === groupCode ||           // shop settings room
+    groupCode.startsWith(s.walkInPrefix) ||   // walk-in rooms e.g. WPG001
+    groupCode.startsWith(`${s.walkInPrefix}EVT`) // event rooms
+  ) || null;
+  const isShopRoom = !!shopInfo;
+  const isEventRoom = false; // all rooms now belong to a shop
   const [eventCodeCreated, setEventCodeCreated] = useState(null);
 
   // Convenience aliases so existing code keeps working

@@ -84,3 +84,10 @@ export async function submitLeaderboardEntry(shopRoomCode, category, name, score
     }
   }
 }
+
+// Subscribe to shop-level settings (PINs, logo, name) — persists across all rooms
+export function subscribeToShopSettings(settingsCode, callback) {
+  const dbRef = ref(db, `shopSettings/${settingsCode}`);
+  onValue(dbRef, snap => callback(snap.val() || {}));
+  return () => off(dbRef);
+}
