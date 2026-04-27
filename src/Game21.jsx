@@ -151,7 +151,7 @@ export default function Game21({ onBack, roomPlayers = [] }) {
 
       // Check if this turn is the last active player — resolve round
       if (newActive.length === 0 || isEndOfRound(game.currentIdx, game.players, newActive)) {
-        resolveRound(updatedGame, newFinishers, newActive);
+        resolveRound(updatedGame, newFinishers, newActive, podium || []);
       } else {
         setGame(updatedGame);
       }
@@ -164,7 +164,8 @@ export default function Game21({ onBack, roomPlayers = [] }) {
 
       // Check end of round — everyone active has thrown
       if (isEndOfRound(game.currentIdx, game.players, activeIds)) {
-        resolveRound(updatedGame, game.roundFinishers, activeIds);
+        // Pass only this round's finishers and reset for next round
+        resolveRound({ ...updatedGame, roundFinishers: [] }, game.roundFinishers, activeIds, podium || []);
       } else {
         setGame(updatedGame);
       }
@@ -197,8 +198,7 @@ export default function Game21({ onBack, roomPlayers = [] }) {
     return true;
   };
 
-  const resolveRound = (updatedGame, finishers, remainingActive) => {
-    const currentPodium = podium || [];
+  const resolveRound = (updatedGame, finishers, remainingActive, currentPodium = podium || []) => {
     const placingStart = currentPodium.length + 1;
 
     if (finishers.length === 0) {

@@ -158,8 +158,7 @@ export default function AroundTheWorld({ onBack, roomPlayers = [] }) {
     return true;
   };
 
-  const resolveRound = (g, finishers, remainingActive) => {
-    const currentPodium = podium || [];
+  const resolveRound = (g, finishers, remainingActive, currentPodium = podium || []) => {
     const placingStart = currentPodium.length + 1;
     if (finishers.length === 0) {
       setGame({ ...g, roundFinishers: [] });
@@ -225,7 +224,7 @@ export default function AroundTheWorld({ onBack, roomPlayers = [] }) {
       const nextIdx = findNextActive(game.currentIdx, game.players, newActive);
       const updatedGame = { ...game, progress: newProgress, throwCounts: newThrowCounts, roundFinishers: newFinishers, active: newActive, currentIdx: nextIdx };
       if (newActive.length === 0 || isEndOfRound(game.currentIdx, game.players, newActive)) {
-        resolveRound(updatedGame, newFinishers, newActive);
+        resolveRound(updatedGame, newFinishers, newActive, podium || []);
       } else {
         setGame(updatedGame);
       }
@@ -236,7 +235,7 @@ export default function AroundTheWorld({ onBack, roomPlayers = [] }) {
     const nextIdx = findNextActive(game.currentIdx, game.players, game.active);
     const updatedGame = { ...game, progress: newProgress, throwCounts: newThrowCounts, currentIdx: nextIdx };
     if (isEndOfRound(game.currentIdx, game.players, game.active)) {
-      resolveRound(updatedGame, game.roundFinishers, game.active);
+      resolveRound(updatedGame, game.roundFinishers, game.active, podium || []);
     } else {
       setGame(updatedGame);
     }
