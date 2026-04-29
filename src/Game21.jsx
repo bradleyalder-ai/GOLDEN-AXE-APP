@@ -110,7 +110,13 @@ export default function Game21({ onBack, roomPlayers = [] }) {
   const awardPlace = (finishers, remainingActive, currentPodium, g) => {
     const placingStart = currentPodium.length + 1;
 
-    if (finishers.length === 0) return; // nothing to do
+    if (finishers.length === 0) {
+      // Nobody finished this cycle — reset and keep playing
+      const nextIdx = g.players.findIndex(p => remainingActive.includes(p.id));
+      setGame({ ...g, pendingFinishers: [], thrownThisCycle: new Set(),
+        currentIdx: nextIdx >= 0 ? nextIdx : 0 });
+      return;
+    }
 
     if (finishers.length === 1) {
       const winner = g.players.find(p => p.id === finishers[0].id);
