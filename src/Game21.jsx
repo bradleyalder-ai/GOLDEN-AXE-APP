@@ -356,9 +356,16 @@ export default function Game21({ onBack, roomPlayers = [] }) {
           const canTap = isActive && !isCurrent && !tiebreaker && step === "game";
           return (
             <div key={pl.id}
-              onClick={() => canTap && setGame(prev => ({ ...prev,
-                currentIdx: prev.players.findIndex(x => x.id === pl.id),
-                turnThrows: [], throwsLeft: throwsPerTurn }))}
+              onClick={() => {
+                if (!canTap) return;
+                setGame(prev => ({
+                  ...prev,
+                  currentIdx: prev.players.findIndex(x => x.id === pl.id),
+                  turnThrows: [],
+                  throwsLeft: throwsPerTurn,
+                  thrownThisCycle: new Set(), // reset cycle so new player gets a full turn
+                }));
+              }}
               style={{
                 flex:1, minWidth:70, background:isCurrent?"#1a2a00":!isActive?"#0a0a0a":PANEL,
                 border:`2px solid ${isCurrent?GOLD:canTap?"#555":!isActive?"#222":BORDER}`,

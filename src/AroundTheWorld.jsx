@@ -371,9 +371,14 @@ export default function AroundTheWorld({ onBack, roomPlayers = [] }) {
           const canTap = isActive && !isCurrent && !tiebreaker && step === "game";
           return (
             <div key={pl.id}
-              onClick={() => canTap && setGame(prev => ({
-                ...prev, currentIdx: prev.players.findIndex(x => x.id === pl.id)
-              }))}
+              onClick={() => {
+                if (!canTap) return;
+                setGame(prev => ({
+                  ...prev,
+                  currentIdx: prev.players.findIndex(x => x.id === pl.id),
+                  thrownThisCycle: new Set(),
+                }));
+              }}
               style={{ display:"flex", alignItems:"center", gap:8, opacity:isActive?1:0.4,
                 cursor:canTap?"pointer":"default" }}>
               <span style={{ color:isCurrent?GOLD:canTap?"#aaa":!isActive?"#444":"#888",
