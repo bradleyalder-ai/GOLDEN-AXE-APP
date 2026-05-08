@@ -3963,7 +3963,13 @@ function LeagueScreen({ players, isAdmin, isManager, activeLeague, setActiveLeag
   const createLeague = () => {
     if (!leagueName.trim()) { notify("Please enter a league name!"); return; }
     if (selectedPlayers.length < 2) { notify("Need at least 2 players!"); return; }
-    if (!isAdmin) { notify("Admin required"); return; }
+    if (!isAdmin) { notify("Scorer access required"); return; }
+    // Check for duplicate league name in history
+    const dupName = (leagueHistory || []).find(l => l.name.trim().toLowerCase() === leagueName.trim().toLowerCase());
+    if (dupName) { notify(`❌ A league named "${dupName.name}" already exists. Please choose a different name.`); return; }
+    if (activeLeague && activeLeague.name.trim().toLowerCase() === leagueName.trim().toLowerCase()) {
+      notify(`❌ Current active league already has that name.`); return;
+    }
     const schedule = buildLeagueSchedule(selectedPlayers);
     const matches = schedule.flatMap((dayMatches, di) =>
       dayMatches.map(([p0, p1], mi) => ({
@@ -3978,6 +3984,8 @@ function LeagueScreen({ players, isAdmin, isManager, activeLeague, setActiveLeag
       matches,
       createdAt: Date.now(),
     });
+    setLeagueName("");
+    setSelectedPlayers([]);
   };
 
   // Compute standings from active league matches
@@ -4038,8 +4046,13 @@ function LeagueScreen({ players, isAdmin, isManager, activeLeague, setActiveLeag
       }
     });
     return leagueData.players
-      .map(id => ({ id, name: getPlayerName(id), ...tally[id] }))
-      .sort((a, b) => b.wins - a.wins || b.roundWins - a.roundWins);
+      .map(id => {
+        const t = tally[id];
+        const winPct = t.matchesPlayed > 0 ? Math.round((t.wins / t.matchesPlayed) * 100) : 0;
+        const ptsPer = t.totalThrows > 0 ? (t.totalPts / t.totalThrows).toFixed(1) : "0.0";
+        return { id, name: getPlayerName(id), ...t, winPct, ptsPer };
+      })
+      .sort((a, b) => b.wins - a.wins || b.roundWins - a.roundWins || b.totalPts - a.totalPts);
   };
 
   // All-time stats across all league history for a player
@@ -4307,12 +4320,15 @@ function LeagueScreen({ players, isAdmin, isManager, activeLeague, setActiveLeag
             const joinedMid = (activeLeague.midLeagueJoins || []).find(j => j.id === p.id);
             return (
             <div key={p.id} style={{ ...cardStyle, border: `1px solid ${i === 0 ? GOLD : BORDER}` }}>
-              {/* Name + W/L */}
+              {/* Name + W/L + Win% */}
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: joinedMid ? 4 : 8 }}>
                 <span style={{ color: i === 0 ? GOLD : "#ccc", fontFamily: "monospace", fontWeight: "bold", fontSize: 15 }}>
                   {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i+1}`} {p.name}
                 </span>
-                <span style={{ color: "#4f4", fontFamily: "monospace", fontSize: 13 }}>{p.wins}W – {p.losses}L</span>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 2 }}>
+                  <span style={{ color: "#4f4", fontFamily: "monospace", fontSize: 13 }}>{p.wins}W – {p.losses}L</span>
+                  <span style={{ color: "#666", fontFamily: "monospace", fontSize: 11 }}>{p.winPct}% win rate · {p.ptsPer}pts/throw</span>
+                </div>
               </div>
               {joinedMid && (
                 <div style={{ color: "#f77f00", fontFamily: "monospace", fontSize: 10, marginBottom: 6 }}>

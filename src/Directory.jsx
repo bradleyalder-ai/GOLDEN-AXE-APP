@@ -88,18 +88,32 @@ function ManagerPanel({ shop, settings, onClose, onRefresh, onJoin }) {
 
   const createLeague = async () => {
     if (!leagueName.trim()) return;
+    // Check for duplicate name
+    const dupName = leagues.find(l => l.name.trim().toLowerCase() === leagueName.trim().toLowerCase());
+    if (dupName) {
+      notify(`❌ A league named "${dupName.name}" already exists. Please choose a different name.`);
+      return;
+    }
+    // Generate short memorable code: WPGLG1, WPGLG2 etc.
     const prefix = shop.walkInPrefix;
-    const code = `${prefix}LG${Date.now().toString().slice(-5)}`;
+    const nextNum = leagues.length + 1;
+    const code = `${prefix}LG${nextNum}`;
     const id = `league_${Date.now()}`;
     await set(ref(db, `shopLeagues/${shop.settingsCode}/${id}`), {
       name: leagueName.trim(),
       roomCode: code,
       createdAt: Date.now(),
       active: true,
+      permanent: true, // never auto-clears
     });
     setLeagueName("");
     setCreatedLeagueCode(code);
-    notify(`✅ League room created! Code: ${code}`);
+    notify(`✅ League created! Code: ${code}`);
+    onRefresh();
+  };
+
+  const archiveLeague = async (id) => {
+    await update(ref(db, `shopLeagues/${shop.settingsCode}/${id}`), { archived: true });
     onRefresh();
   };
 
@@ -249,9 +263,10 @@ function ManagerPanel({ shop, settings, onClose, onRefresh, onJoin }) {
               No league rooms yet.
             </div>
           )}
-          {leagues.map(lg => (
+          {leagues.filter(lg => !lg.archived).map(lg => (
             <div key={lg.id} style={{ display: "flex", alignItems: "center", gap: 8,
-              marginBottom: 6, background: "#0d0d0d", borderRadius: 8, padding: "10px 12px" }}>
+              marginBottom: 6, background: "#0a0f1a", border: "1px solid #1d6a96",
+              borderRadius: 8, padding: "10px 12px" }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ color: "#4a90d9", fontFamily: "monospace",
                   fontSize: 13, fontWeight: "bold" }}>{lg.name}</div>
@@ -260,17 +275,24 @@ function ManagerPanel({ shop, settings, onClose, onRefresh, onJoin }) {
               </div>
               <button onClick={() => onJoin(lg.roomCode)}
                 style={{ background: "#1d6a96", border: "none", borderRadius: 6,
-                  padding: "6px 12px", color: "#fff", fontFamily: "monospace",
+                  padding: "6px 10px", color: "#fff", fontFamily: "monospace",
                   fontSize: 11, cursor: "pointer", flexShrink: 0 }}>
                 Open →
               </button>
-              <button onClick={() => deleteLeague(lg.id)}
-                style={{ background: "transparent", border: "none",
-                  color: RED, cursor: "pointer", fontSize: 16, padding: "0 4px", flexShrink: 0 }}>
-                ✕
+              <button onClick={() => archiveLeague(lg.id)}
+                title="Archive (hide from list)"
+                style={{ background: "transparent", border: "1px solid #333",
+                  borderRadius: 6, padding: "4px 8px",
+                  color: "#555", cursor: "pointer", fontSize: 11, flexShrink: 0 }}>
+                Archive
               </button>
             </div>
           ))}
+          {leagues.filter(lg => lg.archived).length > 0 && (
+            <div style={{ color: "#444", fontFamily: "monospace", fontSize: 11, marginTop: 8 }}>
+              {leagues.filter(lg => lg.archived).length} archived league(s) hidden
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -396,9 +418,9 @@ function ShopPage({ shop, onJoin, onBack }) {
 
       <div style={{ width: "100%", maxWidth: 440 }}>
 
-        {/* Today's Events */}
+        {/* Today's Events (gold) and Walk-in Sessions (green) */}
         {events.length > 0 && (
-          <div style={{ marginBottom: 20 }}>
+          <div style={{ marginBottom: 16 }}>
             <div style={{ color: "#888", fontFamily: "monospace", fontSize: 11,
               letterSpacing: 2, marginBottom: 10 }}>📅 TODAY'S EVENTS & SESSIONS</div>
             {events.map(ev => {
@@ -437,6 +459,42 @@ function ShopPage({ shop, onJoin, onBack }) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* League Events (blue, permanent) */}
+        {leagues.filter(lg => !lg.archived).length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ color: "#888", fontFamily: "monospace", fontSize: 11,
+              letterSpacing: 2, marginBottom: 10 }}>🏅 LEAGUE EVENTS</div>
+            {leagues.filter(lg => !lg.archived).map(lg => (
+              <div key={lg.id} onClick={() => {
+                setEntering(lg.id);
+                setTimeout(() => { onJoin(lg.roomCode); setEntering(null); }, 350);
+              }} style={{
+                background: entering === lg.id ? "#0a1a2a" : "#050a12",
+                border: "2px solid #1d6a96",
+                borderRadius: 14, padding: "16px 20px", marginBottom: 10, cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 14,
+                transform: entering === lg.id ? "scale(0.97)" : "scale(1)",
+                boxShadow: entering === lg.id ? "0 0 20px #1d6a9644" : "none",
+                transition: "all 0.2s",
+              }}>
+                <div style={{ flexShrink: 0, fontSize: 28 }}>🏅</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ color: entering === lg.id ? "#fff" : "#4a90d9",
+                    fontFamily: "monospace", fontWeight: "bold", fontSize: 16 }}>
+                    {lg.name}
+                  </div>
+                  <div style={{ color: "#2a4a6a", fontFamily: "monospace", fontSize: 11, marginTop: 2 }}>
+                    League · {lg.roomCode}
+                  </div>
+                </div>
+                <div style={{ color: "#1d6a96", fontSize: 22 }}>
+                  {entering === lg.id ? "⏳" : "›"}
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
